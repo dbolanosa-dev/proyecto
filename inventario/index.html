@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Control sencillo de productos, existencias y vencimientos para una pulpería."
+    />
+    <title>Mi Pulpería | Control de inventario</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="catalogo.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Mi Pulpería, inicio">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span>mi pulpería<small>control de inventario</small></span>
+      </a>
+      <nav class="desktop-nav" aria-label="Navegación principal">
+        <a href="#inventory-section">Inventario</a>
+        <a href="#offers-section">Ofertas</a>
+        <a href="#movements-section">Movimientos</a>
+      </nav>
+      <div class="topbar-actions">
+        <button class="button button-quiet" id="scan-button" type="button">
+          <span aria-hidden="true">▦</span> Escanear
+        </button>
+        <button class="button button-quiet" id="restore-button" type="button">
+          Restaurar respaldo
+        </button>
+        <button class="button button-quiet" id="backup-button" type="button">
+          Descargar respaldo
+        </button>
+        <button class="button button-primary" id="add-product-button" type="button">
+          <span aria-hidden="true">＋</span> Registrar producto
+        </button>
+      </div>
+    </header>
+
+    <main class="page">
+      <section class="welcome">
+        <div>
+          <p class="eyebrow">SU NEGOCIO, EN ORDEN</p>
+          <h1>Buenos días, pulpero.</h1>
+          <p class="welcome-copy">
+            Un vistazo a sus productos, sus ventas y lo que necesita atención.
+          </p>
+        </div>
+        <div class="today-chip"><span aria-hidden="true">◷</span> <span id="today-label"></span></div>
+      </section>
+
+      <section class="alerts-panel" aria-labelledby="alerts-title">
+        <div class="alerts-heading">
+          <div>
+            <p class="eyebrow">ATENCIÓN DEL DÍA</p>
+            <h2 id="alerts-title">Lotes que necesitan atención</h2>
+          </div>
+          <label class="alert-setting">
+            Avisar antes de
+            <select id="alert-days" aria-label="Anticipación de avisos de vencimiento">
+              <option value="30">30 días</option>
+              <option value="60">60 días</option>
+              <option value="90">90 días</option>
+              <option value="120">120 días</option>
+            </select>
+          </label>
+        </div>
+        <div class="alert-groups">
+          <article class="alert-group alert-expiring">
+            <div class="alert-group-heading">
+              <span class="alert-icon" aria-hidden="true">◷</span>
+              <div><h3>Próximos a vencer</h3><span id="expiring-alert-count">0 lotes</span></div>
+            </div>
+            <ul id="expiring-alert-list"></ul>
+            <button class="alert-link" data-alert-filter="expiring" type="button">Ver lotes por vencer <span aria-hidden="true">→</span></button>
+          </article>
+          <article class="alert-group alert-low-stock">
+            <div class="alert-group-heading">
+              <span class="alert-icon" aria-hidden="true">!</span>
+              <div><h3>Pocas existencias</h3><span id="low-stock-alert-count">0 lotes</span></div>
+            </div>
+            <ul id="low-stock-alert-list"></ul>
+            <button class="alert-link" data-alert-filter="low" type="button">Ver pocas existencias <span aria-hidden="true">→</span></button>
+          </article>
+        </div>
+      </section>
+
+      <section class="offers-panel" id="offers-section" aria-labelledby="offers-title">
+        <div class="offers-heading">
+          <div>
+            <p class="eyebrow">PROMOCIONES</p>
+            <h2 id="offers-title">Ofertas vigentes <span class="offer-count" id="offer-count">0</span></h2>
+            <p class="offers-subtitle">Las ofertas por vencimiento se aplican automáticamente y terminan con el día de vencimiento.</p>
+          </div>
+          <span class="offers-sparkle" aria-hidden="true">✳</span>
+        </div>
+        <div class="offers-grid" id="offers-list"></div>
+        <p class="offers-empty" id="offers-empty">Todavía no hay ofertas activas. Cree una desde el inventario para mostrarla aquí.</p>
+      </section>
+
+      <section class="summary-grid" aria-label="Resumen del inventario">
+        <article class="summary-card">
+          <span class="summary-icon icon-green" aria-hidden="true">▦</span>
+          <div><p>Lotes con existencias</p><strong id="product-count">0</strong></div>
+        </article>
+        <article class="summary-card">
+          <span class="summary-icon icon-yellow" aria-hidden="true">◷</span>
+          <div><p id="expiring-summary-label">Lotes por vencer en 30 días</p><strong id="expiring-count">0</strong></div>
+        </article>
+        <article class="summary-card">
+          <span class="summary-icon icon-red" aria-hidden="true">!</span>
+          <div><p>Lotes vencidos</p><strong id="expired-count">0</strong></div>
+        </article>
+        <article class="summary-card">
+          <span class="summary-icon icon-blue" aria-hidden="true">₡</span>
+          <div><p>Ventas de hoy</p><strong id="sales-today">₡0</strong></div>
+        </article>
+      </section>
+
+      <section class="content-card inventory-section" id="inventory-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PRODUCTOS</p>
+            <h2>Inventario</h2>
+          </div>
+          <div class="inventory-tools">
+            <label class="search-box">
+              <span aria-hidden="true">⌕</span>
+              <span class="visually-hidden">Buscar producto</span>
+              <input id="search-input" type="search" placeholder="Nombre o código..." />
+            </label>
+            <button class="button button-quiet button-scan-inline" id="inventory-scan-button" type="button">▦ Escanear</button>
+          </div>
+        </div>
+        <div class="filter-row" aria-label="Filtrar inventario">
+          <button class="filter-button is-active" data-filter="all" type="button">Todos</button>
+          <button class="filter-button" data-filter="expiring" type="button">Por vencer</button>
+          <button class="filter-button" data-filter="expired" type="button">Vencidos</button>
+          <button class="filter-button" data-filter="low" type="button">Pocas existencias</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Ingreso</th>
+                <th>Vencimiento</th>
+                <th>Existencias</th>
+                <th>Precio de venta</th>
+                <th>Código</th>
+                <th>Estado</th>
+                <th><span class="visually-hidden">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody id="inventory-body"></tbody>
+          </table>
+          <div class="empty-state" id="empty-state">
+            <span class="empty-illustration" aria-hidden="true">🧺</span>
+            <h3>Aún no hay productos</h3>
+            <p>Agregue su primer producto para empezar a llevar el inventario.</p>
+            <button class="button button-primary" id="empty-add-button" type="button">
+              Registrar producto
+            </button>
+          </div>
+          <div class="no-results" id="no-results" hidden>
+            No encontramos productos con esos criterios.
+          </div>
+        </div>
+        <p class="table-note">El inventario se guarda automáticamente en este navegador.</p>
+      </section>
+
+      <section class="content-card movements-section" id="movements-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ACTIVIDAD RECIENTE</p>
+            <h2>Ventas y consumo</h2>
+          </div>
+          <span class="section-caption">Historial completo de salidas</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Movimiento</th>
+                <th>Cantidad</th>
+                <th>Precio unitario</th>
+                <th>Total</th>
+                <th>Fecha</th>
+              </tr>
+            </thead>
+            <tbody id="movements-body"></tbody>
+          </table>
+          <div class="empty-movements" id="empty-movements">
+            Aquí aparecerán las ventas y el consumo que registre.
+          </div>
+        </div>
+      </section>
+
+      <footer>Mi Pulpería · Sus datos se guardan en este dispositivo.</footer>
+    </main>
+
+    <dialog class="modal" id="product-dialog">
+      <form id="product-form" novalidate>
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">NUEVO INGRESO</p>
+            <h2>Registrar producto</h2>
+          </div>
+          <button class="close-button" data-close="product-dialog" type="button" aria-label="Cerrar">×</button>
+        </div>
+        <p class="form-intro">Cada ingreso crea un lote con su propia fecha de vencimiento.</p>
+        <button class="catalog-open-button" id="open-catalog-button" type="button">
+          <span aria-hidden="true">▤</span> Elegir de la lista de productos
+        </button>
+        <label>Nombre del producto<input name="name" required maxlength="80" placeholder="Ej. Leche entera" /></label>
+        <label>Código de barras <span class="optional">(opcional)</span>
+          <span class="barcode-input">
+            <input name="barcode" maxlength="80" inputmode="numeric" placeholder="Escanee o escriba el código" />
+            <button class="button button-quiet" data-scan-target="barcode" type="button">▦ Leer</button>
+          </span>
+        </label>
+        <div class="form-row">
+          <label>Categoría <span class="optional">(opcional)</span><input name="category" maxlength="40" placeholder="Ej. Lácteos" /></label>
+          <label>Cantidad que ingresó<input name="quantity" type="number" min="0.01" step="any" required placeholder="Ej. 12" /></label>
+        </div>
+        <div class="form-row">
+          <label>Fecha de ingreso<input name="entryDate" type="date" required /></label>
+          <label>Fecha de vencimiento<input name="expiryDate" id="expiry-date" type="date" /></label>
+        </div>
+        <label class="no-expiry-option"><input name="noExpiry" id="no-expiry" type="checkbox" /> Este producto no tiene fecha de vencimiento</label>
+        <div class="form-row">
+          <label>Precio de costo por unidad<input name="unitCost" type="number" min="0" step="any" required placeholder="₡0" /></label>
+          <label>Precio de venta por unidad<input name="unitPrice" type="number" min="0" step="any" required placeholder="₡0" /></label>
+        </div>
+        <p class="form-error" id="product-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="button button-quiet" data-close="product-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" type="submit">Guardar producto</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="modal catalog-modal" id="catalog-dialog">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">CATÁLOGO DE REFERENCIA</p>
+          <h2>Elija un producto</h2>
+        </div>
+        <button class="close-button" data-close="catalog-dialog" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <p class="form-intro">La lista ayuda a completar el nombre y la categoría. Revise la presentación y agregue cada lote con su cantidad, costo, precio y vencimiento.</p>
+      <div class="catalog-filters">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <span class="visually-hidden">Buscar en el catálogo</span>
+          <input id="catalog-search" type="search" placeholder="Buscar entre los productos..." />
+        </label>
+        <label class="visually-hidden" for="catalog-category">Filtrar por categoría</label>
+        <select id="catalog-category" aria-label="Filtrar por categoría">
+          <option value="">Todas las categorías</option>
+        </select>
+      </div>
+      <p class="catalog-count" id="catalog-count"></p>
+      <div class="catalog-list" id="catalog-list"></div>
+      <p class="catalog-empty" id="catalog-empty" hidden>No hay coincidencias. Cierre esta ventana y escriba el nombre para registrar un producto propio.</p>
+      <div class="modal-actions">
+        <button class="button button-quiet" data-close="catalog-dialog" type="button">Cerrar</button>
+      </div>
+    </dialog>
+
+    <dialog class="modal" id="movement-dialog">
+      <form id="movement-form" novalidate>
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">ACTUALIZAR EXISTENCIAS</p>
+            <h2>Registrar movimiento</h2>
+          </div>
+          <button class="close-button" data-close="movement-dialog" type="button" aria-label="Cerrar">×</button>
+        </div>
+        <p class="form-intro" id="movement-product-label"></p>
+        <input name="productId" type="hidden" />
+        <label>Tipo de movimiento
+          <select name="type" required>
+            <option value="sale">Venta</option>
+            <option value="consumption">Consumo o merma</option>
+          </select>
+        </label>
+        <div class="form-row">
+          <label>Cantidad<input name="quantity" type="number" min="0.01" step="any" required placeholder="Ej. 1" /></label>
+          <label>Fecha del movimiento<input name="date" type="date" required /></label>
+        </div>
+        <label id="movement-price-label">Precio de venta por unidad<input name="unitPrice" type="number" min="0" step="any" required /></label>
+        <p class="form-hint">El precio sugerido incluye la mejor oferta activa o el descuento por vencimiento. Puede ajustarlo y el precio cobrado quedará guardado en el movimiento.</p>
+        <p class="form-error" id="movement-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="button button-quiet" data-close="movement-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" type="submit">Guardar movimiento</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="modal" id="offer-dialog">
+      <form id="offer-form" novalidate>
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">PROMOCIÓN POR TIEMPO LIMITADO</p>
+            <h2 id="offer-dialog-title">Crear oferta</h2>
+          </div>
+          <button class="close-button" data-close="offer-dialog" type="button" aria-label="Cerrar">×</button>
+        </div>
+        <p class="form-intro" id="offer-product-label"></p>
+        <input name="productId" type="hidden" />
+        <label>Precio especial<input name="offerPrice" type="number" min="0" step="any" required placeholder="₡0" /></label>
+        <label>La oferta termina el<input name="offerEndsAt" type="datetime-local" required /></label>
+        <p class="form-hint">La oferta dejará de mostrarse automáticamente a la hora indicada. El precio normal se conserva.</p>
+        <p class="form-error" id="offer-error" role="alert" hidden></p>
+        <div class="modal-actions offer-modal-actions">
+          <button class="button button-danger" id="remove-offer-button" type="button" hidden>Quitar oferta</button>
+          <span></span>
+          <button class="button button-quiet" data-close="offer-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" type="submit">Guardar oferta</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="modal scanner-modal" id="scanner-dialog">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">LECTOR DE PRODUCTOS</p>
+          <h2>Escanear código de barras</h2>
+        </div>
+        <button class="close-button" data-close="scanner-dialog" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <p class="form-intro" id="scanner-instructions">Apunte la cámara al código de barras. Si el producto ya existe, podrá registrar una venta; si no, podrá agregarlo.</p>
+      <div class="scanner-preview">
+        <video id="scanner-video" playsinline muted></video>
+        <div class="scanner-guide" aria-hidden="true"></div>
+        <div class="scanner-placeholder" id="scanner-placeholder"><span aria-hidden="true">▦</span><span>La cámara aparecerá aquí</span></div>
+      </div>
+      <p class="scanner-status" id="scanner-status" role="status">También puede escribir el código manualmente.</p>
+      <form id="scanner-manual-form" class="scanner-manual-form">
+        <label>Código de barras<input id="scanner-manual-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Ej. 7441001234567" /></label>
+        <button class="button button-primary" type="submit">Buscar producto</button>
+      </form>
+      <div class="modal-actions scanner-actions">
+        <button class="button button-quiet" id="scanner-start-button" type="button">Iniciar cámara</button>
+        <button class="button button-quiet" data-close="scanner-dialog" type="button">Cerrar</button>
+      </div>
+    </dialog>
+    <input id="import-input" type="file" accept="application/json,.json" hidden />
+    <nav class="mobile-nav" aria-label="Navegación principal">
+      <a href="#inventory-section"><span aria-hidden="true">▦</span>Inventario</a>
+      <a href="#offers-section"><span aria-hidden="true">✳</span>Ofertas</a>
+      <a href="#movements-section"><span aria-hidden="true">↗</span>Movimientos</a>
+    </nav>
+  </body>
+</html>
