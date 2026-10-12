@@ -1,6 +1,5 @@
 "use strict";
 
-const STORAGE_KEY = "mi-pulperia-inventario-v1";
 const ALERT_DAYS_KEY = "mi-pulperia-alert-days-v1";
 const DEFAULT_ALERT_DAYS = 30;
 const ALLOWED_ALERT_DAYS = [30, 60, 90, 120];
@@ -64,7 +63,9 @@ const elements = {
   importInput: document.querySelector("#import-input"),
 };
 
-let inventory = loadInventory();
+let inventory = { products: [], movements: [] };
+let inventoryVersion = 0;
+let saveQueue = Promise.resolve();
 let selectedFilter = "all";
 let alertDays = loadAlertDays();
 let scannerStream = null;
@@ -185,30 +186,47 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-function loadInventory() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return { products: [], movements: [] };
-    const parsed = JSON.parse(saved);
-    if (!isValidInventory(parsed)) {
-      throw new Error("El archivo guardado no tiene el formato esperado.");
-    }
-    return parsed;
-  } catch (error) {
-    console.error("No se pudo cargar el inventario guardado.", error);
-    window.alert("No se pudo leer el inventario guardado. Descargue un respaldo antes de continuar.");
-    return { products: [], movements: [] };
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`/api/${path}`, {
+    credentials: "same-origin",
+    ...options,
+  });
+  const result = await response.json();
+  if (response.status === 401) {
+    window.location.replace("/login");
+    throw new Error("La sesión terminó. Inicie sesión de nuevo.");
   }
+  if (!response.ok) {
+    if (response.status === 409) {
+      window.alert(`${result.error} Revise los datos recientes antes de volver a registrar el cambio.`);
+      window.location.reload();
+    }
+    throw new Error(result.error || "No se pudo completar la solicitud.");
+  }
+  return result;
+}
+
+async function loadInventory() {
+  const result = await apiRequest("inventory");
+  if (!isValidInventory(result.inventory) || !Number.isSafeInteger(result.version) || result.version < 0) {
+    throw new Error("El servidor devolvió un inventario con un formato no válido.");
+  }
+  inventory = result.inventory;
+  inventoryVersion = result.version;
 }
 
 function saveInventory() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(inventory));
-  } catch (error) {
-    console.error("No se pudo guardar el inventario.", error);
-    window.alert("No se pudieron guardar los cambios en este navegador. Descargue un respaldo y libere espacio.");
-    throw error;
-  }
+  const snapshot = structuredClone(inventory);
+  const save = saveQueue.then(async () => {
+    const result = await apiRequest("inventory", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inventory: snapshot, version: inventoryVersion }),
+    });
+    inventoryVersion = result.version;
+  });
+  saveQueue = save.catch(() => {});
+  return save;
 }
 
 function createId() {
@@ -900,7 +918,7 @@ elements.productForm.elements.entryDate.addEventListener("change", (event) => {
   elements.productForm.elements.expiryDate.min = event.target.value;
 });
 
-elements.productForm.addEventListener("submit", (event) => {
+elements.productForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setError(elements.productError);
   const form = new FormData(elements.productForm);
@@ -946,9 +964,10 @@ elements.productForm.addEventListener("submit", (event) => {
 
   inventory.products.push(product);
   try {
-    saveInventory();
-  } catch {
+    await saveInventory();
+  } catch (error) {
     inventory.products.pop();
+    setError(elements.productError, `No se pudo guardar el producto: ${error.message}`);
     return;
   }
   elements.productDialog.close();
@@ -967,7 +986,7 @@ elements.movementForm.elements.type.addEventListener("change", (event) => {
   if (product) updateMovementPrice(product, event.target.value);
 });
 
-elements.offerForm.addEventListener("submit", (event) => {
+elements.offerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setError(elements.offerError);
   const form = new FormData(elements.offerForm);
@@ -991,27 +1010,29 @@ elements.offerForm.addEventListener("submit", (event) => {
   product.offerPrice = offerPrice;
   product.offerEndsAt = offerEndsAt;
   try {
-    saveInventory();
-  } catch {
+    await saveInventory();
+  } catch (error) {
     product.offerPrice = previousOffer.offerPrice;
     product.offerEndsAt = previousOffer.offerEndsAt;
+    setError(elements.offerError, `No se pudo guardar la oferta: ${error.message}`);
     return;
   }
   elements.offerDialog.close();
   render();
 });
 
-elements.removeOfferButton.addEventListener("click", () => {
+elements.removeOfferButton.addEventListener("click", async () => {
   const product = inventory.products.find((item) => item.id === elements.offerForm.elements.productId.value);
   if (!product) return;
   const previousOffer = { offerPrice: product.offerPrice, offerEndsAt: product.offerEndsAt };
   product.offerPrice = null;
   product.offerEndsAt = null;
   try {
-    saveInventory();
-  } catch {
+    await saveInventory();
+  } catch (error) {
     product.offerPrice = previousOffer.offerPrice;
     product.offerEndsAt = previousOffer.offerEndsAt;
+    setError(elements.offerError, `No se pudo quitar la oferta: ${error.message}`);
     return;
   }
   elements.offerDialog.close();
@@ -1025,7 +1046,7 @@ elements.offersList.addEventListener("click", (event) => {
   if (product) openOfferDialog(product);
 });
 
-elements.movementForm.addEventListener("submit", (event) => {
+elements.movementForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setError(elements.movementError);
   const form = new FormData(elements.movementForm);
@@ -1070,10 +1091,11 @@ elements.movementForm.addEventListener("submit", (event) => {
   product.remainingQuantity -= quantity;
   inventory.movements.push(movement);
   try {
-    saveInventory();
-  } catch {
+    await saveInventory();
+  } catch (error) {
     product.remainingQuantity += quantity;
     inventory.movements.pop();
+    setError(elements.movementError, `No se pudo guardar el movimiento: ${error.message}`);
     return;
   }
   elements.movementDialog.close();
@@ -1107,7 +1129,7 @@ elements.importInput.addEventListener("change", async () => {
     const previousInventory = inventory;
     inventory = { products: backup.products, movements: backup.movements };
     try {
-      saveInventory();
+      await saveInventory();
     } catch (error) {
       inventory = previousInventory;
       throw error;
@@ -1122,11 +1144,37 @@ elements.importInput.addEventListener("change", async () => {
   }
 });
 
-render();
-window.setInterval(() => {
-  updateTodayHeader();
-  renderSummary();
-  renderAlerts();
-  renderOffers();
-  renderInventory();
-}, 15_000);
+document.querySelector("#logout-button").addEventListener("click", async () => {
+  try {
+    await apiRequest("logout", { method: "POST" });
+    window.location.replace("/login");
+  } catch (error) {
+    window.alert(`No se pudo cerrar la sesión: ${error.message}`);
+  }
+});
+
+async function initializeApp() {
+  try {
+    const session = await apiRequest("session");
+    if (!session.authenticated) {
+      window.location.replace("/login");
+      return;
+    }
+    await loadInventory();
+    render();
+    document.body.classList.remove("app-loading");
+    window.setInterval(() => {
+      updateTodayHeader();
+      renderSummary();
+      renderAlerts();
+      renderOffers();
+      renderInventory();
+    }, 15_000);
+  } catch (error) {
+    console.error("No se pudo iniciar la aplicación.", error);
+    document.querySelector("#app-status").textContent =
+      `No se pudo cargar el inventario. ${error.message} Compruebe la conexión y vuelva a cargar la página.`;
+  }
+}
+
+initializeApp();

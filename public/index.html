@@ -8,11 +8,12 @@
       content="Control sencillo de productos, existencias y vencimientos para una pulpería."
     />
     <title>Mi Pulpería | Control de inventario</title>
-    <link rel="stylesheet" href="styles.css" />
-    <script src="catalogo.js" defer></script>
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/catalogo.js" defer></script>
+    <script src="/app.js" defer></script>
   </head>
-  <body>
+  <body class="app-loading">
+    <p class="app-status" id="app-status" role="status">Conectando con el inventario seguro...</p>
     <header class="topbar">
       <a class="brand" href="#" aria-label="Mi Pulpería, inicio">
         <span class="brand-mark" aria-hidden="true">P</span>
@@ -32,6 +33,9 @@
         </button>
         <button class="button button-quiet" id="backup-button" type="button">
           Descargar respaldo
+        </button>
+        <button class="button button-quiet" id="logout-button" type="button" aria-label="Cerrar sesión">
+          <span aria-hidden="true">↪</span> Salir
         </button>
         <button class="button button-primary" id="add-product-button" type="button">
           <span aria-hidden="true">＋</span> Registrar producto
@@ -168,7 +172,7 @@
             No encontramos productos con esos criterios.
           </div>
         </div>
-        <p class="table-note">El inventario se guarda automáticamente en este navegador.</p>
+        <p class="table-note">El inventario se guarda de forma segura en PostgreSQL y se sincroniza entre dispositivos.</p>
       </section>
 
       <section class="content-card movements-section" id="movements-section">
@@ -199,7 +203,7 @@
         </div>
       </section>
 
-      <footer>Mi Pulpería · Sus datos se guardan en este dispositivo.</footer>
+      <footer>Mi Pulpería · Inventario privado sincronizado con PostgreSQL.</footer>
     </main>
 
     <dialog class="modal" id="product-dialog">

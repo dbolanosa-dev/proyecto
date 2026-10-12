@@ -1,32 +1,52 @@
 # Mi Pulpería
 
-Aplicación web para llevar el inventario de una pulpería: registre lotes con su fecha de ingreso, fecha de vencimiento, cantidad, costo y precio de venta; después anote las ventas o el consumo para actualizar las existencias.
+Aplicación privada para registrar lotes, existencias, vencimientos, ofertas, ventas y consumo. En el despliegue de Vercel, la interfaz estática se comunica con la API Flask y guarda el inventario compartido en PostgreSQL.
 
-## Cómo abrirla
+## Ejecución local
 
-1. Abra una terminal dentro de esta carpeta.
-2. Ejecute `python -m http.server 8000`.
-3. Visite [http://localhost:8000](http://localhost:8000) en su navegador.
+Se necesita Python 3.12. Para entrar y probar la aplicación en modo local no hace falta instalar PostgreSQL: guarda sus datos en un archivo SQLite local. El despliegue de Vercel sí requiere PostgreSQL.
 
-No requiere instalar paquetes ni tener conexión a internet para funcionar (las fuentes tipográficas externas son opcionales). Se recomienda abrirla siempre desde la misma dirección y el mismo navegador.
+1. Desde la raíz del repositorio, cree un entorno virtual e instale las dependencias:
 
-## Uso
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python -m pip install -r requirements.txt
+   ```
 
-- **Registrar producto:** cada registro es un lote nuevo. Así puede controlar por separado productos iguales que ingresaron o vencen en fechas distintas.
-- **Catálogo de referencia:** al registrar un lote, elija de una lista inicial de más de 200 productos comunes, filtrada por categoría o búsqueda. Seleccionar un artículo completa su nombre y categoría; todavía debe indicar la cantidad y sus precios, y ningún producto se agrega al inventario hasta guardar el lote. También puede escribir productos que no estén en la lista. La lista no asigna códigos de barras ni precios inventados.
-- **Productos sin vencimiento:** marque «Este producto no tiene fecha de vencimiento» para artículos como bolsas o artículos de limpieza. Estos no aparecen en las alertas ni reciben descuentos por vencimiento.
-- **Descuento automático por vencimiento:** los lotes con existencias reciben 10% de descuento cuando faltan entre 4 y 7 días y 20% cuando faltan 3 días o menos (incluido el día de vencimiento). No se aplica a productos vencidos; el precio vuelve al normal después de la fecha de vencimiento. Si hay otra oferta activa, se sugiere el precio más bajo, sin acumular descuentos.
-- **Crear ofertas:** desde el inventario elija «Crear oferta», indique un precio menor al normal y seleccione el día y la hora límite. Las ofertas activas aparecen en el inicio con el descuento y una cuenta regresiva; al llegar la hora dejan de mostrarse y vuelve a usarse el precio normal. Las ventas de un producto en oferta proponen automáticamente el precio especial mientras la promoción siga activa.
-- **Registrar salida:** seleccione venta o consumo/merma, indique cantidad, fecha y precio unitario. Las existencias se rebajan y el movimiento queda en el historial.
-- **Avisos en el inicio:** vea los lotes que están próximos a vencer y los que tienen tres unidades o menos. Elija avisar con 30, 60, 90 o 120 días de anticipación; la preferencia se guarda en el navegador.
-- **Buscar y filtrar:** encuentre productos o revise cuáles están vencidos, dentro del período de aviso configurado o tienen pocas existencias. Desde el inicio puede saltar directamente a esos filtros.
-- **Escanear desde el teléfono:** guarde el código de barras al crear un lote y use «Escanear» para buscarlo rápidamente. Si hay existencias, se abre la venta del lote con el vencimiento más próximo; si se agotó, se abre el ingreso de un nuevo lote con los datos del producto. Se puede escribir el código manualmente si el navegador no admite cámara o lectura de códigos.
-- **Descargar respaldo:** guarde los productos y movimientos en un archivo JSON. Use «Restaurar respaldo» para cargarlo; importar reemplaza los datos actuales.
+2. Copie `.env.example` a `.env`. Para el modo local, `PULPERIA_PASSWORD` y `SESSION_SECRET` son suficientes. Si configura `POSTGRES_URL`, la aplicación usa PostgreSQL en vez del archivo SQLite local.
+3. Inicie la aplicación desde la raíz del repositorio:
 
-## Almacenamiento
+   ```powershell
+   python app.py
+   ```
 
-La información se guarda en el almacenamiento local del navegador y solo está disponible en ese dispositivo y perfil de navegador. Borrar los datos del navegador puede eliminar el inventario; descargue respaldos con frecuencia. Esta versión no sincroniza información entre dispositivos ni usuarios.
+4. Abra [http://localhost:8000/login](http://localhost:8000/login). En modo local, la base persistente se crea en `.data/pulperia.sqlite3`. Ese directorio se excluye de Git.
 
-## Abrir en el teléfono
+## Publicación en Vercel
 
-Conecte el teléfono y la computadora a la misma red Wi-Fi, ejecute `python -m http.server 8000 --bind 0.0.0.0` desde esta carpeta y visite `http://DIRECCION-IP-DE-LA-COMPUTADORA:8000` en el teléfono. En Windows, puede consultar la dirección con `ipconfig`. El acceso desde otro dispositivo se sirve por HTTP, por lo que la cámara suele requerir que se publique la app en una dirección segura HTTPS. Mientras tanto, puede buscar productos o escribir el código manualmente. Los datos del teléfono quedan separados de los de la computadora; use los respaldos para trasladarlos.
+1. Cree una base PostgreSQL administrada (por ejemplo, Neon) y obtenga su URL de conexión con SSL.
+2. Importe el repositorio en Vercel usando la raíz del proyecto como directorio raíz. Vercel detecta el servidor Flask en `app.py`, publica los recursos estáticos de `public/` y los sirve por su CDN.
+3. En **Project Settings → Environment Variables**, defina para cada entorno que vaya a utilizar:
+   - `POSTGRES_URL`: URL de PostgreSQL con SSL.
+   - `PULPERIA_PASSWORD`: contraseña larga y exclusiva para acceder al inventario.
+   - `SESSION_SECRET`: secreto aleatorio largo para firmar las sesiones; se puede generar con `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+4. Despliegue o vuelva a desplegar el proyecto para que las variables queden disponibles.
+5. Visite `/login` en el dominio de Vercel. Al abrir el inventario por primera vez, se crea la tabla `pulperia_inventory`.
+
+Las credenciales son variables del servidor; no las agregue al código ni las exponga en el navegador. Para bases que codifican caracteres especiales en la contraseña, use una URL de conexión correctamente codificada. El archivo `.env` local está excluido de Git.
+
+## Acceso y almacenamiento
+
+La contraseña compartida autoriza a las personas que la conocen a consultar y modificar el mismo inventario; la aplicación no administra cuentas ni roles individuales. Las sesiones duran ocho horas y usan cookies `HttpOnly`; en Vercel también usan `Secure`. Utilice una contraseña exclusiva y compártala solo con personas autorizadas. SQLite se ofrece únicamente para desarrollo en esta computadora; Vercel requiere `POSTGRES_URL` con una conexión PostgreSQL que admita SSL.
+
+Los productos y movimientos se guardan en PostgreSQL y se sincronizan entre dispositivos. La preferencia de anticipación de avisos se conserva localmente en cada navegador. Descargue respaldos JSON periódicamente: **Restaurar respaldo** reemplaza el inventario compartido, no solo el del dispositivo actual.
+
+Para trasladar datos guardados por la versión anterior del navegador, descargue allí un respaldo, inicie sesión en el despliegue nuevo y use **Restaurar respaldo**. Los datos antiguos no se migran automáticamente.
+
+## Funcionalidades
+
+- Registre lotes individuales con sus fechas, cantidades, costos, precios y códigos de barras.
+- Consulte el catálogo de referencia, las alertas de vencimiento y las existencias bajas.
+- Cree ofertas temporales y registre ventas, consumo o merma.
+- Busque y filtre el inventario, escanee códigos de barras y restaure respaldos.
