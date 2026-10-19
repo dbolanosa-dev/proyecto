@@ -37,6 +37,9 @@
         <button class="button button-quiet" id="logout-button" type="button" aria-label="Cerrar sesión">
           <span aria-hidden="true">↪</span> Salir
         </button>
+        <button class="button button-primary" id="open-cart-button" type="button">
+          <span aria-hidden="true">▤</span> Nueva compra
+        </button>
         <button class="button button-primary" id="add-product-button" type="button">
           <span aria-hidden="true">＋</span> Registrar producto
         </button>
@@ -123,6 +126,62 @@
         </article>
       </section>
 
+      <section class="content-card monthly-sales-panel" aria-labelledby="monthly-sales-title">
+        <div class="section-heading monthly-sales-heading">
+          <div>
+            <p class="eyebrow">RENDIMIENTO</p>
+            <h2 id="monthly-sales-title">Ganancias y pérdidas del mes</h2>
+            <p class="monthly-sales-period" id="monthly-sales-period"></p>
+          </div>
+          <div class="monthly-sales-sales-total">
+            <span>Ventas del mes</span>
+            <strong class="monthly-sales-total" id="monthly-sales-total">₡0</strong>
+          </div>
+        </div>
+        <div class="monthly-finance-legend" aria-label="Leyenda de la gráfica">
+          <span><i class="monthly-legend-swatch is-gain" aria-hidden="true"></i> Ganancia bruta</span>
+          <span><i class="monthly-legend-swatch is-loss" aria-hidden="true"></i> Pérdidas y merma</span>
+        </div>
+        <div
+          class="monthly-sales-chart"
+          id="monthly-sales-chart"
+          role="list"
+          aria-label="Ganancias y pérdidas estimadas por semana del mes"
+        ></div>
+        <div class="performance-grid">
+          <article class="performance-metric">
+            <p class="performance-label">Ventas vs. mes anterior</p>
+            <strong id="monthly-sales-change">₡0</strong>
+            <span id="monthly-sales-change-detail">Sin cambio</span>
+          </article>
+          <article class="performance-metric">
+            <p class="performance-label">Ganancia bruta</p>
+            <strong id="monthly-gains-total">₡0</strong>
+            <span>Ventas menos costo de los productos vendidos</span>
+          </article>
+          <article class="performance-metric">
+            <p class="performance-label">Pérdidas y merma</p>
+            <strong id="monthly-losses-total">₡0</strong>
+            <span>Consumo registrado y ventas bajo costo</span>
+          </article>
+          <article class="performance-metric">
+            <p class="performance-label">Resultado estimado</p>
+            <strong id="monthly-estimated-profit">₡0</strong>
+            <span>Ganancia tras costos y mermas; no incluye gastos fijos</span>
+          </article>
+          <article class="performance-top-products">
+            <div class="performance-top-heading">
+              <p class="performance-label">Productos más vendidos</p>
+              <span>Este mes</span>
+            </div>
+            <ol id="monthly-top-products"></ol>
+            <p class="performance-top-empty" id="monthly-top-products-empty" hidden>
+              Aún no hay ventas registradas este mes.
+            </p>
+          </article>
+        </div>
+      </section>
+
       <section class="content-card inventory-section" id="inventory-section">
         <div class="section-heading">
           <div>
@@ -155,7 +214,7 @@
                 <th>Precio de venta</th>
                 <th>Código</th>
                 <th>Estado</th>
-                <th><span class="visually-hidden">Acciones</span></th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody id="inventory-body"></tbody>
@@ -189,6 +248,7 @@
               <tr>
                 <th>Producto</th>
                 <th>Movimiento</th>
+                <th>Persona</th>
                 <th>Cantidad</th>
                 <th>Precio unitario</th>
                 <th>Total</th>
@@ -295,12 +355,45 @@
           <label>Cantidad<input name="quantity" type="number" min="0.01" step="any" required placeholder="Ej. 1" /></label>
           <label>Fecha del movimiento<input name="date" type="date" required /></label>
         </div>
+        <label id="movement-person-field">Persona <span class="optional">(opcional)</span>
+          <input name="personName" maxlength="80" autocomplete="off" placeholder="Nombre de la persona" />
+        </label>
         <label id="movement-price-label">Precio de venta por unidad<input name="unitPrice" type="number" min="0" step="any" required /></label>
-        <p class="form-hint">El precio sugerido incluye la mejor oferta activa o el descuento por vencimiento. Puede ajustarlo y el precio cobrado quedará guardado en el movimiento.</p>
+        <p class="form-hint" id="movement-price-hint">El precio sugerido incluye la mejor oferta activa o el descuento por vencimiento. Puede ajustarlo y el precio cobrado quedará guardado en el movimiento.</p>
         <p class="form-error" id="movement-error" role="alert" hidden></p>
         <div class="modal-actions">
           <button class="button button-quiet" data-close="movement-dialog" type="button">Cancelar</button>
           <button class="button button-primary" type="submit">Guardar movimiento</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="modal cart-dialog" id="cart-dialog">
+      <form id="cart-form" novalidate>
+        <div class="modal-heading">
+          <div>
+            <p class="eyebrow">VENTA A UNA PERSONA</p>
+            <h2>Armar compra</h2>
+          </div>
+          <button class="close-button" data-close="cart-dialog" type="button" aria-label="Cerrar">×</button>
+        </div>
+        <label>Persona que compra
+          <input name="personName" maxlength="80" autocomplete="off" required placeholder="Nombre de la persona" />
+        </label>
+        <label>Buscar en el menú
+          <input id="cart-search" type="search" autocomplete="off" placeholder="Producto o categoría" />
+        </label>
+        <div class="cart-menu" id="cart-menu" aria-label="Productos disponibles"></div>
+        <p class="cart-menu-empty" id="cart-menu-empty" hidden>No hay productos disponibles que coincidan con la búsqueda.</p>
+        <section class="cart-order" aria-labelledby="cart-order-title">
+          <h3 id="cart-order-title">Productos de esta compra</h3>
+          <div id="cart-items"></div>
+          <p class="cart-empty" id="cart-empty">Agregue productos del menú para comenzar.</p>
+          <p class="cart-total">Total <strong id="cart-total">₡0</strong></p>
+        </section>
+        <p class="form-error" id="cart-error" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button class="button button-quiet" data-close="cart-dialog" type="button">Cancelar</button>
+          <button class="button button-primary" id="checkout-button" type="submit">Registrar compra</button>
         </div>
       </form>
     </dialog>

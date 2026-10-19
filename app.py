@@ -181,6 +181,13 @@ def is_valid_inventory(value):
                 is_number(movement.get("quantity"), 0.000000001),
                 is_number(movement.get("unitPrice")),
                 is_number(movement.get("total")),
+                movement.get("unitCost") is None or is_number(movement.get("unitCost")),
+                movement.get("personName") is None
+                or isinstance(movement.get("personName"), str)
+                and len(movement["personName"]) <= 80,
+                movement.get("orderId") is None
+                or isinstance(movement.get("orderId"), str)
+                and 0 < len(movement["orderId"]) <= 80,
             )
         ):
             return False

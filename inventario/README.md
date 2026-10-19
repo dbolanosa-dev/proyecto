@@ -49,4 +49,6 @@ Para trasladar datos guardados por la versión anterior del navegador, descargue
 - Registre lotes individuales con sus fechas, cantidades, costos, precios y códigos de barras.
 - Consulte el catálogo de referencia, las alertas de vencimiento y las existencias bajas.
 - Cree ofertas temporales y registre ventas, consumo o merma.
+- Revise las ganancias brutas, las ventas bajo costo y las mermas estimadas por semana en la gráfica mensual. El cálculo usa el costo unitario registrado en cada salida; las salidas antiguas usan el costo actual guardado para su lote.
+- Arme una compra con varios productos para una persona, revise cantidades y precios y registre el pedido junto; el historial guarda cada producto con el nombre de esa persona.
 - Busque y filtre el inventario, escanee códigos de barras y restaure respaldos.

@@ -4,8 +4,8 @@ const ALERT_DAYS_KEY = "mi-pulperia-alert-days-v1";
 const DEFAULT_ALERT_DAYS = 30;
 const ALLOWED_ALERT_DAYS = [30, 60, 90, 120];
 const EXPIRY_DISCOUNT_TIERS = [
-  { daysLeft: 3, percentage: 20 },
-  { daysLeft: 7, percentage: 10 },
+  { daysLeft: 10, percentage: 20 },
+  { daysLeft: 30, percentage: 10 },
 ];
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const LOW_STOCK_LIMIT = 3;
@@ -17,6 +17,16 @@ const elements = {
   expiredCount: document.querySelector("#expired-count"),
   expiringSummaryLabel: document.querySelector("#expiring-summary-label"),
   salesToday: document.querySelector("#sales-today"),
+  monthlySalesTotal: document.querySelector("#monthly-sales-total"),
+  monthlySalesPeriod: document.querySelector("#monthly-sales-period"),
+  monthlySalesChart: document.querySelector("#monthly-sales-chart"),
+  monthlySalesChange: document.querySelector("#monthly-sales-change"),
+  monthlySalesChangeDetail: document.querySelector("#monthly-sales-change-detail"),
+  monthlyGainsTotal: document.querySelector("#monthly-gains-total"),
+  monthlyLossesTotal: document.querySelector("#monthly-losses-total"),
+  monthlyEstimatedProfit: document.querySelector("#monthly-estimated-profit"),
+  monthlyTopProducts: document.querySelector("#monthly-top-products"),
+  monthlyTopProductsEmpty: document.querySelector("#monthly-top-products-empty"),
   alertDays: document.querySelector("#alert-days"),
   expiringAlertCount: document.querySelector("#expiring-alert-count"),
   expiringAlertList: document.querySelector("#expiring-alert-list"),
@@ -30,15 +40,27 @@ const elements = {
   search: document.querySelector("#search-input"),
   productDialog: document.querySelector("#product-dialog"),
   movementDialog: document.querySelector("#movement-dialog"),
+  cartDialog: document.querySelector("#cart-dialog"),
   offerDialog: document.querySelector("#offer-dialog"),
   productForm: document.querySelector("#product-form"),
   movementForm: document.querySelector("#movement-form"),
+  cartForm: document.querySelector("#cart-form"),
   offerForm: document.querySelector("#offer-form"),
   productError: document.querySelector("#product-error"),
   movementError: document.querySelector("#movement-error"),
   offerError: document.querySelector("#offer-error"),
   movementProductLabel: document.querySelector("#movement-product-label"),
   movementPriceLabel: document.querySelector("#movement-price-label"),
+  movementPersonField: document.querySelector("#movement-person-field"),
+  movementPriceHint: document.querySelector("#movement-price-hint"),
+  cartSearch: document.querySelector("#cart-search"),
+  cartMenu: document.querySelector("#cart-menu"),
+  cartMenuEmpty: document.querySelector("#cart-menu-empty"),
+  cartItems: document.querySelector("#cart-items"),
+  cartEmpty: document.querySelector("#cart-empty"),
+  cartTotal: document.querySelector("#cart-total"),
+  cartError: document.querySelector("#cart-error"),
+  checkoutButton: document.querySelector("#checkout-button"),
   offerProductLabel: document.querySelector("#offer-product-label"),
   offerDialogTitle: document.querySelector("#offer-dialog-title"),
   removeOfferButton: document.querySelector("#remove-offer-button"),
@@ -75,6 +97,7 @@ let scannerTarget = null;
 let scannerReturnDialog = null;
 let scannerRequestId = 0;
 let productDraft = null;
+let cartItems = [];
 
 function loadAlertDays() {
   try {
@@ -138,7 +161,14 @@ function isValidInventory(value) {
     isValidDate(movement.date) && typeof movement.createdAt === "string" &&
     Number.isFinite(movement.quantity) && movement.quantity > 0 &&
     Number.isFinite(movement.unitPrice) && movement.unitPrice >= 0 &&
-    Number.isFinite(movement.total) && movement.total >= 0;
+    Number.isFinite(movement.total) && movement.total >= 0 &&
+    (movement.unitCost == null ||
+      (Number.isFinite(movement.unitCost) && movement.unitCost >= 0)) &&
+    (movement.personName == null ||
+      (typeof movement.personName === "string" && movement.personName.length <= 80)) &&
+    (movement.orderId == null ||
+      (typeof movement.orderId === "string" && movement.orderId.length > 0 &&
+        movement.orderId.length <= 80));
   return value.products.every(validProduct) && value.movements.every(validMovement);
 }
 
@@ -229,6 +259,22 @@ function saveInventory() {
   return save;
 }
 
+function parseNumericInput(value) {
+  if (value === null || value === undefined) return Number.NaN;
+  const text = String(value).trim();
+  if (!text) return Number.NaN;
+
+  let normalized = text.replace(/\s+/g, "");
+  if (normalized.includes(",") && normalized.includes(".")) {
+    normalized = normalized.replace(/\./g, "").replace(",", ".");
+  } else if (normalized.includes(",")) {
+    normalized = normalized.replace(",", ".");
+  }
+
+  const result = Number(normalized);
+  return Number.isFinite(result) ? result : Number.NaN;
+}
+
 function createId() {
   return globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -308,7 +354,7 @@ function remainingOfferTime(value) {
 }
 
 function expiryStatus(product) {
-  if (product.remainingQuantity <= 0) return { label: "Agotado", className: "status-ok" };
+  if (product.remainingQuantity <= 0) return { label: "Agotado", className: "status-empty" };
   const days = daysUntilExpiry(product);
   if (days < 0) return { label: "Vencido", className: "status-expired" };
   if (days <= alertDays) return { label: days === 0 ? "Vence hoy" : `Vence en ${days} d`, className: "status-soon" };
@@ -335,6 +381,235 @@ function renderSummary() {
     .filter((movement) => movement.type === "sale" && movement.date === today)
     .reduce((total, movement) => total + movement.total, 0);
   elements.salesToday.textContent = formatMoney(sales);
+  renderMonthlySales();
+}
+
+function renderMonthlySales() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const weekCount = Math.ceil(daysInMonth / 7);
+  const weeklySales = Array.from({ length: weekCount }, () => 0);
+  const weeklyGains = Array.from({ length: weekCount }, () => 0);
+  const weeklyLosses = Array.from({ length: weekCount }, () => 0);
+  const monthPrefix = `${year}-${String(month + 1).padStart(2, "0")}-`;
+  const previousMonthDate = new Date(year, month - 1, 1);
+  const previousMonthPrefix =
+    `${previousMonthDate.getFullYear()}-${String(previousMonthDate.getMonth() + 1).padStart(2, "0")}-`;
+  const previousMonthName = new Intl.DateTimeFormat("es-CR", {
+    month: "long",
+    year: "numeric",
+  }).format(previousMonthDate);
+  const monthName = new Intl.DateTimeFormat("es-CR", { month: "long" }).format(now);
+  elements.monthlySalesPeriod.textContent = `1–${daysInMonth} de ${monthName} de ${year}`;
+
+  let previousMonthSales = 0;
+  let estimatedProfit = 0;
+  const productsById = new Map(inventory.products.map((product) => [product.id, product]));
+  const topProducts = new Map();
+  for (const movement of inventory.movements) {
+    if (movement.type === "sale" && movement.date.startsWith(previousMonthPrefix)) {
+      previousMonthSales += movement.total;
+      continue;
+    }
+    if (!movement.date.startsWith(monthPrefix)) continue;
+    const day = Number(movement.date.slice(8, 10));
+    const weekIndex = Math.floor((day - 1) / 7);
+    const product = productsById.get(movement.productId);
+    const unitCost = Number.isFinite(movement.unitCost)
+      ? movement.unitCost
+      : product?.unitCost ?? 0;
+    const cost = unitCost * movement.quantity;
+    if (movement.type === "sale") {
+      const grossProfit = movement.total - cost;
+      estimatedProfit += grossProfit;
+      if (Number.isInteger(day) && weekIndex >= 0 && weekIndex < weeklySales.length) {
+        weeklySales[weekIndex] += movement.total;
+        weeklyGains[weekIndex] += Math.max(grossProfit, 0);
+        weeklyLosses[weekIndex] += Math.max(-grossProfit, 0);
+      }
+    } else {
+      estimatedProfit -= cost;
+      if (Number.isInteger(day) && weekIndex >= 0 && weekIndex < weeklyLosses.length) {
+        weeklyLosses[weekIndex] += cost;
+      }
+    }
+    if (movement.type !== "sale") continue;
+    const summary = topProducts.get(movement.productId) ?? {
+      name: movement.productName,
+      quantity: 0,
+      revenue: 0,
+    };
+    summary.quantity += movement.quantity;
+    summary.revenue += movement.total;
+    topProducts.set(movement.productId, summary);
+  }
+
+  const monthlyTotal = weeklySales.reduce((total, amount) => total + amount, 0);
+  const monthlyGains = weeklyGains.reduce((total, amount) => total + amount, 0);
+  const monthlyLosses = weeklyLosses.reduce((total, amount) => total + amount, 0);
+  const maxFinancialAmount = Math.max(...weeklyGains, ...weeklyLosses, 0);
+  const formatMonthDay = (day) =>
+    new Intl.DateTimeFormat("es-CR", { day: "numeric", month: "short" })
+      .format(new Date(year, month, day));
+  elements.monthlySalesTotal.textContent = formatMoney(monthlyTotal);
+  elements.monthlyGainsTotal.textContent = formatMoney(monthlyGains);
+  elements.monthlyLossesTotal.textContent = formatMoney(monthlyLosses);
+  elements.monthlyEstimatedProfit.textContent = formatMoney(estimatedProfit);
+  elements.monthlyEstimatedProfit.classList.toggle("is-positive", estimatedProfit > 0);
+  elements.monthlyEstimatedProfit.classList.toggle("is-negative", estimatedProfit < 0);
+
+  const change = monthlyTotal - previousMonthSales;
+  const percentageChange = previousMonthSales === 0
+    ? null
+    : (change / previousMonthSales) * 100;
+  elements.monthlySalesChange.textContent =
+    `${change > 0 ? "+" : change < 0 ? "−" : ""}${formatMoney(Math.abs(change))}`;
+  elements.monthlySalesChange.classList.toggle("is-positive", change > 0);
+  elements.monthlySalesChange.classList.toggle("is-negative", change < 0);
+  elements.monthlySalesChangeDetail.textContent = previousMonthSales === 0
+    ? monthlyTotal > 0 ? `Sin ventas en ${previousMonthName}` : `Sin cambios vs. ${previousMonthName}`
+    : `${percentageChange > 0 ? "+" : ""}${percentageChange.toLocaleString("es-CR", {
+      maximumFractionDigits: 1,
+    })}% vs. ${previousMonthName}`;
+
+  const bestSellers = [...topProducts.values()]
+    .sort((first, second) => second.quantity - first.quantity || second.revenue - first.revenue)
+    .slice(0, 5);
+  elements.monthlyTopProducts.replaceChildren();
+  elements.monthlyTopProductsEmpty.hidden = bestSellers.length > 0;
+  for (const [index, product] of bestSellers.entries()) {
+    const item = document.createElement("li");
+    const rank = document.createElement("span");
+    rank.className = "top-product-rank";
+    rank.textContent = String(index + 1);
+    const name = document.createElement("span");
+    name.className = "top-product-name";
+    name.textContent = product.name;
+    const quantity = document.createElement("span");
+    quantity.className = "top-product-quantity";
+    quantity.textContent = `${formatQuantity(product.quantity)} ud.`;
+    const revenue = document.createElement("strong");
+    revenue.className = "top-product-revenue";
+    revenue.textContent = formatMoney(product.revenue);
+    item.append(rank, name, quantity, revenue);
+    elements.monthlyTopProducts.append(item);
+  }
+
+  renderMonthlyFinancialLines({
+    chart: elements.monthlySalesChart,
+    gains: weeklyGains,
+    losses: weeklyLosses,
+    maxAmount: maxFinancialAmount,
+    weekCount,
+    daysInMonth,
+    formatMonthDay,
+    monthName,
+    year,
+  });
+}
+
+function renderMonthlyFinancialLines({
+  chart,
+  gains,
+  losses,
+  maxAmount,
+  weekCount,
+  daysInMonth,
+  formatMonthDay,
+  monthName,
+  year,
+}) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const width = 800;
+  const height = 280;
+  const left = 76;
+  const right = 24;
+  const top = 24;
+  const bottom = 232;
+  const plotWidth = width - left - right;
+  const plotHeight = bottom - top;
+  const scaleMaximum = maxAmount > 0 ? maxAmount * 1.12 : 1;
+  const x = (index) => weekCount === 1
+    ? left + plotWidth / 2
+    : left + (plotWidth * index) / (weekCount - 1);
+  const y = (amount) => bottom - (amount / scaleMaximum) * plotHeight;
+  const svg = document.createElementNS(namespace, "svg");
+  svg.classList.add("monthly-sales-svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute(
+    "aria-label",
+    `Gráfica lineal de ganancias y pérdidas por semana de ${monthName} de ${year}.`,
+  );
+
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const tickY = top + (plotHeight * tick) / 4;
+    const value = scaleMaximum * (1 - tick / 4);
+    const gridLine = document.createElementNS(namespace, "line");
+    gridLine.classList.add("monthly-sales-grid");
+    gridLine.setAttribute("x1", String(left));
+    gridLine.setAttribute("x2", String(width - right));
+    gridLine.setAttribute("y1", String(tickY));
+    gridLine.setAttribute("y2", String(tickY));
+    svg.append(gridLine);
+
+    const tickLabel = document.createElementNS(namespace, "text");
+    tickLabel.classList.add("monthly-sales-axis-label");
+    tickLabel.setAttribute("x", String(left - 10));
+    tickLabel.setAttribute("y", String(tickY + 4));
+    tickLabel.setAttribute("text-anchor", "end");
+    tickLabel.textContent = formatCompactMoney(value);
+    svg.append(tickLabel);
+  }
+
+  const xLabelY = bottom + 34;
+  for (let index = 0; index < weekCount; index += 1) {
+    const startDay = index * 7 + 1;
+    const endDay = Math.min(startDay + 6, daysInMonth);
+    const label = document.createElementNS(namespace, "text");
+    label.classList.add("monthly-sales-axis-label", "monthly-sales-week-label");
+    label.setAttribute("x", String(x(index)));
+    label.setAttribute("y", String(xLabelY));
+    label.setAttribute("text-anchor", "middle");
+    label.textContent = `${formatMonthDay(startDay)}–${formatMonthDay(endDay)}`;
+    svg.append(label);
+  }
+
+  for (const [values, series, label] of [
+    [gains, "gain", "Ganancia bruta"],
+    [losses, "loss", "Pérdidas y merma"],
+  ]) {
+    const line = document.createElementNS(namespace, "polyline");
+    line.classList.add("monthly-sales-line", `is-${series}`);
+    line.setAttribute(
+      "points",
+      values.map((value, index) => `${x(index)},${y(value)}`).join(" "),
+    );
+    svg.append(line);
+
+    for (let index = 0; index < values.length; index += 1) {
+      const point = document.createElementNS(namespace, "circle");
+      point.classList.add("monthly-sales-point", `is-${series}`);
+      point.setAttribute("cx", String(x(index)));
+      point.setAttribute("cy", String(y(values[index])));
+      point.setAttribute("r", "5");
+      const title = document.createElementNS(namespace, "title");
+      title.textContent = `${label}, semana ${index + 1}: ${formatMoney(values[index])}`;
+      point.append(title);
+      svg.append(point);
+    }
+  }
+
+  chart.replaceChildren(svg);
+}
+
+function formatCompactMoney(value) {
+  return new Intl.NumberFormat("es-CR", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 function renderAlerts() {
@@ -371,7 +646,9 @@ function renderOffers() {
 
   for (const { product, promotion } of offers) {
     const card = document.createElement("article");
-    card.className = "offer-card";
+    card.className = promotion.type === "expiry"
+      ? "offer-card offer-card-expiry"
+      : "offer-card";
 
     const top = document.createElement("div");
     top.className = "offer-card-top";
@@ -389,21 +666,41 @@ function renderOffers() {
 
     const prices = document.createElement("div");
     prices.className = "offer-prices";
+    const offerPriceGroup = document.createElement("div");
+    offerPriceGroup.className = "offer-price-group";
+    const offerPriceLabel = document.createElement("span");
+    offerPriceLabel.className = "offer-price-label";
+    offerPriceLabel.textContent = "Ahora";
     const offerPrice = document.createElement("span");
     offerPrice.className = "offer-price";
     offerPrice.textContent = formatMoney(promotion.price);
+    offerPriceGroup.append(offerPriceLabel, offerPrice);
+    const regularPriceGroup = document.createElement("div");
+    regularPriceGroup.className = "offer-regular-price-group";
+    const regularPriceLabel = document.createElement("span");
+    regularPriceLabel.className = "offer-price-label";
+    regularPriceLabel.textContent = "Antes";
     const regularPrice = document.createElement("span");
     regularPrice.className = "offer-regular-price";
     regularPrice.textContent = formatMoney(product.unitPrice);
-    prices.append(offerPrice, regularPrice);
+    regularPriceGroup.append(regularPriceLabel, regularPrice);
+    prices.append(offerPriceGroup, regularPriceGroup);
 
     const deadline = document.createElement("p");
     deadline.className = promotion.type === "expiry"
       ? "offer-time-left offer-expiry-note"
       : "offer-time-left";
+    const daysLeft = daysUntilExpiry(product);
+    const expiryText = Number.isFinite(daysLeft)
+      ? daysLeft === 0
+        ? "Vence hoy"
+        : daysLeft === 1
+          ? "Falta 1 día para vencer"
+          : `Faltan ${daysLeft} días para vencer`
+      : "Sin fecha de vencimiento";
     deadline.textContent = promotion.type === "expiry"
-      ? `${remainingOfferTime(promotion.endsAt)} · Vence ${formatDate(product.expiryDate)}`
-      : `${remainingOfferTime(promotion.endsAt)} · hasta ${formatDateTime(product.offerEndsAt)}`;
+      ? `${expiryText} · ${formatDate(product.expiryDate)}`
+      : `${expiryText} · Oferta ${remainingOfferTime(product.offerEndsAt)}`;
 
     const actions = document.createElement("div");
     actions.className = "offer-card-actions";
@@ -477,6 +774,7 @@ function renderInventory() {
     const status = expiryStatus(product);
     const promotion = currentPromotion(product);
     const row = document.createElement("tr");
+    row.className = `inventory-row ${status.className}`;
     row.innerHTML = `
       <td data-label="Producto"><span class="product-name">${escapeHtml(product.name)}</span>${product.category ? `<span class="product-category">${escapeHtml(product.category)}</span>` : ""}</td>
       <td data-label="Ingreso">${formatDate(product.entryDate)}</td>
@@ -505,9 +803,11 @@ function renderMovements() {
   for (const movement of movements) {
     const isSale = movement.type === "sale";
     const row = document.createElement("tr");
+    row.className = isSale ? "movement-row movement-row-sale" : "movement-row movement-row-consumption";
     row.innerHTML = `
       <td data-label="Producto"><span class="product-name">${escapeHtml(movement.productName)}</span></td>
       <td data-label="Movimiento"><span class="movement-type ${isSale ? "movement-sale" : "movement-consumption"}">${isSale ? "Venta" : "Consumo / merma"}</span></td>
+      <td data-label="Persona">${escapeHtml(movement.personName || "—")}</td>
       <td data-label="Cantidad">${formatQuantity(movement.quantity)}</td>
       <td data-label="Precio unitario">${formatMoney(movement.unitPrice)}</td>
       <td data-label="Total"><span class="movement-total">${formatMoney(movement.total)}</span></td>
@@ -601,6 +901,7 @@ function openMovementDialog(product) {
   elements.movementForm.reset();
   setError(elements.movementError);
   elements.movementForm.elements.productId.value = product.id;
+  elements.movementPersonField.hidden = elements.movementForm.elements.type.value !== "sale";
   elements.movementForm.elements.date.value = localDateString();
   elements.movementForm.elements.quantity.max = product.remainingQuantity;
   elements.movementProductLabel.textContent =
@@ -609,16 +910,133 @@ function openMovementDialog(product) {
   elements.movementDialog.showModal();
 }
 
+function previousPersonPrice(product, personName) {
+  const normalizedName = personName.trim().toLocaleLowerCase();
+  if (!normalizedName) return null;
+  const previousSale = inventory.movements
+    .filter((movement) => movement.type === "sale" &&
+      movement.productId === product.id &&
+      movement.personName?.trim().toLocaleLowerCase() === normalizedName)
+    .sort((first, second) =>
+      second.date.localeCompare(first.date) || second.createdAt.localeCompare(first.createdAt))[0];
+  return previousSale?.unitPrice ?? null;
+}
+
+function availableForCart(product) {
+  return product.remainingQuantity > 0 && daysUntilExpiry(product) >= 0;
+}
+
+function suggestedSalePrice(product, personName) {
+  const promotion = currentPromotion(product);
+  const personPrice = previousPersonPrice(product, personName);
+  return personPrice === null
+    ? promotion?.price ?? product.unitPrice
+    : promotion ? Math.min(personPrice, promotion.price) : personPrice;
+}
+
+function openCartDialog() {
+  elements.cartForm.reset();
+  setError(elements.cartError);
+  cartItems = [];
+  renderCart();
+  renderCartMenu();
+  elements.cartDialog.showModal();
+}
+
+function renderCartMenu() {
+  const query = elements.cartSearch.value.trim().toLocaleLowerCase();
+  const personName = elements.cartForm.elements.personName.value;
+  const availableProducts = inventory.products.filter((product) =>
+    availableForCart(product) &&
+    `${product.name} ${product.category}`.toLocaleLowerCase().includes(query));
+  elements.cartMenu.replaceChildren();
+  elements.cartMenuEmpty.hidden = availableProducts.length > 0;
+  for (const product of availableProducts) {
+    const cartItem = cartItems.find((item) => item.productId === product.id);
+    const remaining = product.remainingQuantity - (cartItem?.quantity ?? 0);
+    const promotion = currentPromotion(product);
+    const card = document.createElement("article");
+    card.className = "cart-menu-item";
+    card.innerHTML = `
+      <div class="cart-menu-details">
+        <strong>${escapeHtml(product.name)}</strong>
+        <span>${escapeHtml(product.category || "Producto")} · ${formatQuantity(Math.max(remaining, 0))} disponibles</span>
+      </div>
+      <div class="cart-menu-price">
+        <strong>${formatMoney(suggestedSalePrice(product, personName))}</strong>
+        ${promotion ? `<span>${promotion.type === "expiry" ? `${promotion.percentage}% por vencer` : "Oferta"}</span>` : ""}
+      </div>
+      <button class="small-button cart-add-button" data-cart-add="${escapeHtml(product.id)}" type="button"
+        ${remaining <= 0 ? "disabled" : ""}>${cartItem ? "Agregar otro" : "Agregar"}</button>
+    `;
+    elements.cartMenu.append(card);
+  }
+}
+
+function renderCart() {
+  elements.cartItems.replaceChildren();
+  elements.cartEmpty.hidden = cartItems.length > 0;
+  let total = 0;
+  for (const item of cartItems) {
+    const product = inventory.products.find((candidate) => candidate.id === item.productId);
+    if (!product) continue;
+    const lineTotal = item.quantity * item.unitPrice;
+    total += lineTotal;
+    const row = document.createElement("div");
+    row.className = "cart-order-item";
+    row.innerHTML = `
+      <div class="cart-order-product">
+        <strong>${escapeHtml(product.name)}</strong>
+        <span>${formatMoney(lineTotal)}</span>
+      </div>
+      <label>Cant.
+        <input data-cart-quantity="${escapeHtml(product.id)}" type="number" min="0.01"
+          max="${product.remainingQuantity}" step="any" value="${item.quantity}" aria-label="Cantidad de ${escapeHtml(product.name)}" />
+      </label>
+      <label>Precio c/u
+        <input data-cart-price="${escapeHtml(product.id)}" type="number" min="0"
+          step="any" value="${item.unitPrice}" aria-label="Precio unitario de ${escapeHtml(product.name)}" />
+      </label>
+      <button class="small-button cart-remove-button" data-cart-remove="${escapeHtml(product.id)}"
+        type="button" aria-label="Quitar ${escapeHtml(product.name)}">Quitar</button>
+    `;
+    elements.cartItems.append(row);
+  }
+  elements.cartTotal.textContent = Number.isFinite(total) ? formatMoney(total) : "—";
+  elements.checkoutButton.disabled = cartItems.length === 0;
+}
+
+function refreshCartSuggestions() {
+  const personName = elements.cartForm.elements.personName.value;
+  for (const item of cartItems) {
+    if (item.priceEdited) continue;
+    const product = inventory.products.find((candidate) => candidate.id === item.productId);
+    if (product) item.unitPrice = suggestedSalePrice(product, personName);
+  }
+  renderCart();
+  renderCartMenu();
+}
+
 function updateMovementPrice(product, type) {
   const isSale = type === "sale";
   const promotion = isSale ? currentPromotion(product) : null;
   elements.movementPriceLabel.firstChild.textContent = promotion?.type === "expiry"
-    ? `Precio con descuento por vencimiento (${promotion.percentage}%) por unidad`
+    ? `Precio con descuento por vencimiento (${promotion.percentage}%) por unidad para esta persona`
     : promotion
-      ? "Precio de oferta por unidad"
-      : isSale ? "Precio de venta por unidad" : "Precio de costo por unidad";
+      ? "Precio de oferta por unidad para esta persona"
+      : isSale ? "Precio de venta por unidad para esta persona" : "Precio de costo por unidad";
+  elements.movementPersonField.hidden = !isSale;
+  elements.movementPriceHint.textContent = isSale
+    ? "Puede ajustar el precio para esta persona. Al volver a escribir su nombre, se sugerirá el último precio que pagó por este producto."
+    : "El precio de costo por unidad se registra como referencia para este consumo o merma.";
+  const personPrice = isSale
+    ? previousPersonPrice(product, elements.movementForm.elements.personName.value)
+    : null;
   elements.movementForm.elements.unitPrice.value =
-    isSale ? promotion?.price ?? product.unitPrice : product.unitCost;
+    isSale
+      ? personPrice === null ? promotion?.price ?? product.unitPrice
+        : promotion ? Math.min(personPrice, promotion.price) : personPrice
+      : product.unitCost;
 }
 
 function openOfferDialog(product) {
@@ -822,6 +1240,7 @@ function updateTodayHeader() {
 
 updateTodayHeader();
 
+document.querySelector("#open-cart-button").addEventListener("click", openCartDialog);
 document.querySelector("#add-product-button").addEventListener("click", openProductDialog);
 document.querySelector("#empty-add-button").addEventListener("click", openProductDialog);
 document.querySelector("#scan-button").addEventListener("click", () => openScanner());
@@ -843,6 +1262,125 @@ renderCatalog();
 elements.catalogList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-catalog-name]");
   if (button) chooseCatalogProduct(button.dataset.catalogName);
+});
+
+elements.cartSearch.addEventListener("input", renderCartMenu);
+elements.cartForm.elements.personName.addEventListener("input", refreshCartSuggestions);
+elements.cartMenu.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-cart-add]");
+  if (!button) return;
+  const product = inventory.products.find((item) => item.id === button.dataset.cartAdd);
+  if (!product || !availableForCart(product)) return;
+  const cartItem = cartItems.find((item) => item.productId === product.id);
+  if (cartItem) {
+    if (cartItem.quantity >= product.remainingQuantity) return;
+    cartItem.quantity = Math.min(cartItem.quantity + 1, product.remainingQuantity);
+  } else {
+    cartItems.push({
+      productId: product.id,
+      quantity: 1,
+      unitPrice: suggestedSalePrice(product, elements.cartForm.elements.personName.value),
+      priceEdited: false,
+    });
+  }
+  setError(elements.cartError);
+  renderCart();
+  renderCartMenu();
+});
+
+elements.cartItems.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-cart-remove]");
+  if (!button) return;
+  cartItems = cartItems.filter((item) => item.productId !== button.dataset.cartRemove);
+  renderCart();
+  renderCartMenu();
+});
+
+elements.cartItems.addEventListener("change", (event) => {
+  const input = event.target;
+  const item = cartItems.find((candidate) =>
+    candidate.productId === (input.dataset.cartQuantity ?? input.dataset.cartPrice));
+  if (!item) return;
+  if (input.matches("[data-cart-quantity]")) {
+    item.quantity = parseNumericInput(input.value);
+  } else {
+    item.unitPrice = parseNumericInput(input.value);
+    item.priceEdited = true;
+  }
+  renderCart();
+  renderCartMenu();
+});
+
+elements.cartForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  setError(elements.cartError);
+  const personName = elements.cartForm.elements.personName.value.trim();
+  if (!personName || personName.length > 80) {
+    setError(elements.cartError, "Escriba el nombre de la persona que realiza la compra.");
+    elements.cartForm.elements.personName.focus();
+    return;
+  }
+  if (cartItems.length === 0) {
+    setError(elements.cartError, "Agregue al menos un producto a la compra.");
+    return;
+  }
+
+  const date = localDateString();
+  const checkedItems = [];
+  for (const item of cartItems) {
+    const product = inventory.products.find((candidate) => candidate.id === item.productId);
+    if (!product || !availableForCart(product)) {
+      setError(elements.cartError, "Uno de los productos ya no está disponible. Revise el menú.");
+      renderCartMenu();
+      return;
+    }
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0 ||
+        item.quantity > product.remainingQuantity ||
+        !Number.isFinite(item.unitPrice) || item.unitPrice < 0 ||
+        date < product.entryDate) {
+      setError(elements.cartError, `Revise la cantidad y el precio de ${product.name}; la cantidad no puede superar las existencias disponibles.`);
+      return;
+    }
+    checkedItems.push({ item, product });
+  }
+
+  const previousQuantities = checkedItems.map(({ product }) => product.remainingQuantity);
+  const previousMovementCount = inventory.movements.length;
+  const orderId = createId();
+  for (const { item, product } of checkedItems) {
+    product.remainingQuantity -= item.quantity;
+    inventory.movements.push({
+      id: createId(),
+      productId: product.id,
+      productName: product.name,
+      orderId,
+      type: "sale",
+      personName,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      unitCost: product.unitCost,
+      total: item.quantity * item.unitPrice,
+      date,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  elements.checkoutButton.disabled = true;
+  try {
+    await saveInventory();
+  } catch (error) {
+    checkedItems.forEach(({ product }, index) => {
+      product.remainingQuantity = previousQuantities[index];
+    });
+    inventory.movements.length = previousMovementCount;
+    setError(elements.cartError, `No se pudo guardar la compra: ${error.message}`);
+    elements.checkoutButton.disabled = false;
+    return;
+  }
+
+  elements.cartDialog.close();
+  cartItems = [];
+  render();
 });
 
 elements.noExpiry.addEventListener("change", () => {
@@ -929,10 +1467,10 @@ elements.productForm.addEventListener("submit", async (event) => {
     barcode: String(form.get("barcode")).trim(),
     entryDate: String(form.get("entryDate")),
     expiryDate: form.has("noExpiry") ? "" : String(form.get("expiryDate") ?? ""),
-    quantity: Number(form.get("quantity")),
-    remainingQuantity: Number(form.get("quantity")),
-    unitCost: Number(form.get("unitCost")),
-    unitPrice: Number(form.get("unitPrice")),
+    quantity: parseNumericInput(form.get("quantity")),
+    remainingQuantity: parseNumericInput(form.get("quantity")),
+    unitCost: parseNumericInput(form.get("unitCost")),
+    unitPrice: parseNumericInput(form.get("unitPrice")),
     offerPrice: null,
     offerEndsAt: null,
     createdAt: new Date().toISOString(),
@@ -983,7 +1521,17 @@ elements.inventoryBody.addEventListener("click", (event) => {
 
 elements.movementForm.elements.type.addEventListener("change", (event) => {
   const product = inventory.products.find((item) => item.id === elements.movementForm.elements.productId.value);
-  if (product) updateMovementPrice(product, event.target.value);
+  if (product) {
+    if (event.target.value !== "sale") elements.movementForm.elements.personName.value = "";
+    updateMovementPrice(product, event.target.value);
+  }
+});
+
+elements.movementForm.elements.personName.addEventListener("input", () => {
+  const product = inventory.products.find((item) => item.id === elements.movementForm.elements.productId.value);
+  if (product && elements.movementForm.elements.type.value === "sale") {
+    updateMovementPrice(product, "sale");
+  }
 });
 
 elements.offerForm.addEventListener("submit", async (event) => {
@@ -991,7 +1539,7 @@ elements.offerForm.addEventListener("submit", async (event) => {
   setError(elements.offerError);
   const form = new FormData(elements.offerForm);
   const product = inventory.products.find((item) => item.id === form.get("productId"));
-  const offerPrice = Number(form.get("offerPrice"));
+  const offerPrice = parseNumericInput(form.get("offerPrice"));
   const offerEndsAt = String(form.get("offerEndsAt"));
 
   if (!product || product.remainingQuantity <= 0 ||
@@ -1051,12 +1599,13 @@ elements.movementForm.addEventListener("submit", async (event) => {
   setError(elements.movementError);
   const form = new FormData(elements.movementForm);
   const product = inventory.products.find((item) => item.id === form.get("productId"));
-  const quantity = Number(form.get("quantity"));
-  const unitPrice = Number(form.get("unitPrice"));
+  const quantity = parseNumericInput(form.get("quantity"));
+  const unitPrice = parseNumericInput(form.get("unitPrice"));
   const date = String(form.get("date"));
+  const personName = String(form.get("personName") || "").trim();
 
   if (!product || !Number.isFinite(quantity) || quantity <= 0 ||
-      !Number.isFinite(unitPrice) || unitPrice < 0 || !date) {
+      !Number.isFinite(unitPrice) || unitPrice < 0 || !date || personName.length > 80) {
     setError(elements.movementError, "Revise la cantidad, el precio y la fecha del movimiento.");
     return;
   }
@@ -1084,10 +1633,12 @@ elements.movementForm.addEventListener("submit", async (event) => {
     type: String(form.get("type")),
     quantity,
     unitPrice,
+    unitCost: product.unitCost,
     total: quantity * unitPrice,
     date,
     createdAt: new Date().toISOString(),
   };
+  if (movement.type === "sale" && personName) movement.personName = personName;
   product.remainingQuantity -= quantity;
   inventory.movements.push(movement);
   try {

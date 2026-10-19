@@ -149,6 +149,56 @@ class InventoryApiTests(unittest.TestCase):
         self.assertEqual(latest["version"], 1)
         self.assertEqual(latest["inventory"], payload)
 
+        payload["movements"] = [{
+            "id": "movement-1",
+            "productId": "product-1",
+            "productName": "Arroz",
+            "orderId": "order-1",
+            "type": "sale",
+            "quantity": 2,
+            "unitPrice": 650,
+            "total": 1300,
+            "date": "2026-10-16",
+            "createdAt": "2026-10-16T12:00:00.000Z",
+        }, {
+            "id": "movement-2",
+            "productId": "product-1",
+            "productName": "Arroz",
+            "orderId": "order-1",
+            "type": "sale",
+            "quantity": 1,
+            "unitPrice": 650,
+            "total": 650,
+            "date": "2026-10-16",
+            "createdAt": "2026-10-16T12:01:00.000Z",
+        }]
+        legacy_sale = self.client.put("/api/inventory", json={"inventory": payload, "version": 1})
+        self.assertEqual(legacy_sale.status_code, 200)
+
+        payload["movements"][0]["personName"] = "Ana"
+        payload["movements"][1]["personName"] = "Ana"
+        person_sale = self.client.put("/api/inventory", json={"inventory": payload, "version": 2})
+        self.assertEqual(person_sale.status_code, 200)
+        self.assertEqual(
+            [
+                movement["personName"]
+                for movement in self.client.get("/api/inventory").get_json()["inventory"]["movements"]
+            ],
+            ["Ana", "Ana"],
+        )
+
+        payload["movements"][0]["personName"] = "A" * 81
+        invalid_person = self.client.put("/api/inventory", json={"inventory": payload, "version": 3})
+        self.assertEqual(invalid_person.status_code, 400)
+
+        payload["movements"][0]["personName"] = "Ana"
+        payload["movements"][0]["unitCost"] = 500
+        cost_snapshot = self.client.put("/api/inventory", json={"inventory": payload, "version": 3})
+        self.assertEqual(cost_snapshot.status_code, 200)
+        payload["movements"][0]["unitCost"] = -1
+        invalid_cost = self.client.put("/api/inventory", json={"inventory": payload, "version": 4})
+        self.assertEqual(invalid_cost.status_code, 400)
+
     def test_local_sqlite_persists_inventory_and_rejects_stale_writes(self):
         self.use_sqlite_database()
         self.assertEqual(self.login().status_code, 200)
